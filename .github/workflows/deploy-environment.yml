@@ -1,0 +1,68 @@
+name: Deploy environment (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: GitHub environment name (dev | production)
+        required: true
+        type: string
+      parameter-file:
+        description: Bicep parameter file for this environment
+        required: true
+        type: string
+      image:
+        description: Full container image reference to deploy
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Bicep + app (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ steps.deploy.outputs.webAppUrl }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: What-if (preview infrastructure changes)
+        run: |
+          az deployment group what-if \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --template-file infra/main.bicep \
+            --parameters "${{ inputs.parameter-file }}" \
+            --parameters containerImage="${{ inputs.image }}"
+
+      - name: Deploy Bicep (infrastructure + container image)
+        id: deploy
+        run: |
+          outputs=$(az deployment group create \
+            --name "payroll-${{ inputs.environment }}-${{ github.run_number }}" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --template-file infra/main.bicep \
+            --parameters "${{ inputs.parameter-file }}" \
+            --parameters containerImage="${{ inputs.image }}" \
+            --query properties.outputs --output json)
+          echo "webAppName=$(echo "$outputs" | jq -r .webAppName.value)" >> "$GITHUB_OUTPUT"
+          echo "webAppUrl=$(echo "$outputs" | jq -r .webAppUrl.value)"   >> "$GITHUB_OUTPUT"
+
+      - name: Restart to pick up the new image
+        run: az webapp restart --name "${{ steps.deploy.outputs.webAppName }}" --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}"
+
+      - name: Smoke test (liveness)
+        run: |
+          curl --fail --silent --show-error \
+               --retry 20 --retry-delay 15 --retry-all-errors \
+               "${{ steps.deploy.outputs.webAppUrl }}/health/live"

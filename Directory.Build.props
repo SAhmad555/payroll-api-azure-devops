@@ -1,0 +1,14 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    <!-- Keep the noisy-but-harmless analyzers as suggestions so the build stays green and readable. -->
+    <NoWarn>$(NoWarn);CA1062;CA1848;CA1716;CA1707;CA1711;CA1819;CA1515;CA2007;CA1031;CA1305;CA1307;CA1310;CA1309;CA1860;CA1724;CA1034;CA1000;CA1812;CA1852;CA1822;CA1859;CA1873</NoWarn>
+    <Authors>Shahbaz Ahmad</Authors>
+    <Copyright>Copyright (c) 2026 Shahbaz Ahmad</Copyright>
+  </PropertyGroup>
+</Project>

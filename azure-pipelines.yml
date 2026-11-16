@@ -1,0 +1,163 @@
+# Azure DevOps multi-stage pipeline: Build → Test → Deploy Dev → Deploy Prod (manual approval)
+#
+# Prerequisites (Project settings → Service connections / Pipelines → Environments):
+#   • ARM service connection  "sc-azure-payroll"  (workload identity federation, no secrets)
+#   • Docker registry service connection "sc-acr-payroll" → the shared ACR
+#   • Environments "payroll-dev" and "payroll-prod"; add an *Approvals* check (and optionally
+#     business-hours / branch-control checks) on "payroll-prod" — that is what gates production.
+
+trigger:
+  branches:
+    include: [main]
+  paths:
+    exclude: ['**/*.md', '.github/**']
+
+pr:
+  branches:
+    include: [main]
+
+variables:
+  buildConfiguration: Release
+  dotnetVersion: '10.0.x'
+  azureServiceConnection: sc-azure-payroll
+  acrServiceConnection: sc-acr-payroll
+  acrLoginServer: crpayrollshared.azurecr.io
+  imageRepository: payroll-api
+  imageTag: $(Build.BuildId)
+  isMain: $[eq(variables['Build.SourceBranch'], 'refs/heads/main')]
+
+pool:
+  vmImage: ubuntu-latest
+
+stages:
+  # ------------------------------------------------------------------ BUILD
+  - stage: Build
+    displayName: Build
+    jobs:
+      - job: Compile
+        displayName: Compile solution & validate IaC
+        steps:
+          - task: UseDotNet@2
+            displayName: Use .NET SDK $(dotnetVersion)
+            inputs:
+              packageType: sdk
+              version: $(dotnetVersion)
+
+          - script: dotnet restore PayrollApi.slnx
+            displayName: Restore
+
+          - script: dotnet build PayrollApi.slnx --configuration $(buildConfiguration) --no-restore
+            displayName: Build (warnings as errors)
+
+          - script: >
+              dotnet publish src/Payroll.Api/Payroll.Api.csproj
+              --configuration $(buildConfiguration) --no-build
+              --output $(Build.ArtifactStagingDirectory)/api
+            displayName: Publish API
+
+          - task: AzureCLI@2
+            displayName: Bicep build (lint + compile)
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                az bicep install
+                az bicep build --file infra/main.bicep --stdout > /dev/null
+                az bicep build-params --file infra/main.dev.bicepparam --stdout > /dev/null
+                az bicep build-params --file infra/main.prod.bicepparam --stdout > /dev/null
+
+          - publish: $(Build.ArtifactStagingDirectory)/api
+            artifact: api
+            displayName: Publish artifact (api)
+
+          - publish: infra
+            artifact: infra
+            displayName: Publish artifact (infra)
+
+  # ------------------------------------------------------------------ TEST
+  - stage: Test
+    displayName: Test
+    dependsOn: Build
+    jobs:
+      - job: Tests
+        displayName: Unit + integration tests with coverage
+        steps:
+          - task: UseDotNet@2
+            inputs:
+              packageType: sdk
+              version: $(dotnetVersion)
+
+          - task: DotNetCoreCLI@2
+            displayName: dotnet test
+            inputs:
+              command: test
+              projects: PayrollApi.slnx
+              arguments: >
+                --configuration $(buildConfiguration)
+                --collect "XPlat Code Coverage"
+              publishTestResults: true
+
+          - task: PublishCodeCoverageResults@2
+            displayName: Publish code coverage
+            inputs:
+              summaryFileLocation: $(Agent.TempDirectory)/**/coverage.cobertura.xml
+
+  # ------------------------------------------------------------------ DEPLOY DEV
+  - stage: DeployDev
+    displayName: Deploy Dev
+    dependsOn: Test
+    condition: and(succeeded(), eq(variables.isMain, true))
+    jobs:
+      - job: PushImage
+        displayName: Build & push container image
+        steps:
+          - task: Docker@2
+            displayName: Build and push $(imageRepository):$(imageTag)
+            inputs:
+              command: buildAndPush
+              containerRegistry: $(acrServiceConnection)
+              repository: $(imageRepository)
+              dockerfile: Dockerfile
+              buildContext: .
+              tags: |
+                $(imageTag)
+
+      - deployment: Deploy
+        displayName: Deploy infrastructure + app (dev)
+        dependsOn: PushImage
+        environment: payroll-dev
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                - template: .azure-pipelines/templates/deploy-bicep.yml
+                  parameters:
+                    azureServiceConnection: $(azureServiceConnection)
+                    resourceGroup: rg-payroll-dev
+                    parameterFile: infra/main.dev.bicepparam
+                    image: $(acrLoginServer)/$(imageRepository):$(imageTag)
+                    environmentName: dev
+
+  # ------------------------------------------------------------------ DEPLOY PROD
+  - stage: DeployProd
+    displayName: Deploy Prod
+    dependsOn: DeployDev
+    condition: and(succeeded(), eq(variables.isMain, true))
+    jobs:
+      - deployment: Deploy
+        displayName: Deploy infrastructure + app (prod)
+        environment: payroll-prod   # Approvals & checks configured on this environment gate the stage
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                - template: .azure-pipelines/templates/deploy-bicep.yml
+                  parameters:
+                    azureServiceConnection: $(azureServiceConnection)
+                    resourceGroup: rg-payroll-prod
+                    parameterFile: infra/main.prod.bicepparam
+                    image: $(acrLoginServer)/$(imageRepository):$(imageTag)   # same image promoted from dev
+                    environmentName: prod

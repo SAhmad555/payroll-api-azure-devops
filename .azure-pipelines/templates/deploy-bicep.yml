@@ -1,0 +1,60 @@
+# Reusable deployment steps: what-if → deploy Bicep (infra + image) → restart → smoke test.
+
+parameters:
+  - name: azureServiceConnection
+    type: string
+  - name: resourceGroup
+    type: string
+  - name: parameterFile
+    type: string
+  - name: image
+    type: string
+  - name: environmentName
+    type: string
+
+steps:
+  - task: AzureCLI@2
+    displayName: What-if (${{ parameters.environmentName }})
+    inputs:
+      azureSubscription: ${{ parameters.azureServiceConnection }}
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        az deployment group what-if \
+          --resource-group "${{ parameters.resourceGroup }}" \
+          --template-file infra/main.bicep \
+          --parameters "${{ parameters.parameterFile }}" \
+          --parameters containerImage="${{ parameters.image }}"
+
+  - task: AzureCLI@2
+    name: bicep
+    displayName: Deploy Bicep (${{ parameters.environmentName }})
+    inputs:
+      azureSubscription: ${{ parameters.azureServiceConnection }}
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        set -euo pipefail
+        outputs=$(az deployment group create \
+          --name "payroll-${{ parameters.environmentName }}-$(Build.BuildId)" \
+          --resource-group "${{ parameters.resourceGroup }}" \
+          --template-file infra/main.bicep \
+          --parameters "${{ parameters.parameterFile }}" \
+          --parameters containerImage="${{ parameters.image }}" \
+          --query properties.outputs --output json)
+        echo "##vso[task.setvariable variable=webAppName;isOutput=true]$(echo "$outputs" | jq -r .webAppName.value)"
+        echo "##vso[task.setvariable variable=webAppUrl;isOutput=true]$(echo "$outputs" | jq -r .webAppUrl.value)"
+
+  - task: AzureCLI@2
+    displayName: Restart web app
+    inputs:
+      azureSubscription: ${{ parameters.azureServiceConnection }}
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: az webapp restart --name "$(bicep.webAppName)" --resource-group "${{ parameters.resourceGroup }}"
+
+  - script: |
+      curl --fail --silent --show-error \
+           --retry 20 --retry-delay 15 --retry-all-errors \
+           "$(bicep.webAppUrl)/health/live"
+    displayName: Smoke test (liveness)

@@ -1,0 +1,40 @@
+# Build output
+bin/
+obj/
+out/
+publish/
+artifacts/
+
+# Test & coverage output
+TestResults/
+coverage/
+coverage-report/
+*.coverage
+*.coveragexml
+coverage.cobertura.xml
+
+# Local SQLite databases created by the API in development
+*.db
+*.db-shm
+*.db-wal
+
+# IDE / OS
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.swp
+.DS_Store
+Thumbs.db
+
+# Secrets — never commit
+appsettings.*.local.json
+*.pfx
+*.publishsettings
+.env
+.env.*
+
+# Bicep build output
+infra/**/*.json
+!infra/**/bicepconfig.json

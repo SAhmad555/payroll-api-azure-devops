@@ -1,0 +1,17 @@
+**/bin/
+**/obj/
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/TestResults/
+**/coverage*/
+.git/
+.github/
+.vs/
+.vscode/
+.idea/
+infra/
+tests/
+docs/
+*.md
+azure-pipelines.yml

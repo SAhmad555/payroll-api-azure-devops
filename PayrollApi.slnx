@@ -1,0 +1,19 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Payroll.Domain/Payroll.Domain.csproj" />
+    <Project Path="src/Payroll.Application/Payroll.Application.csproj" />
+    <Project Path="src/Payroll.Infrastructure/Payroll.Infrastructure.csproj" />
+    <Project Path="src/Payroll.Api/Payroll.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Payroll.Domain.Tests/Payroll.Domain.Tests.csproj" />
+    <Project Path="tests/Payroll.Api.IntegrationTests/Payroll.Api.IntegrationTests.csproj" />
+  </Folder>
+  <Folder Name="/solution-items/">
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="README.md" />
+    <File Path="Dockerfile" />
+    <File Path="azure-pipelines.yml" />
+  </Folder>
+</Solution>
