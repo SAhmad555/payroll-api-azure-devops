@@ -47,12 +47,13 @@ jobs:
 
       - name: Coverage report
         if: always()
-        uses: danielpalme/ReportGenerator-GitHub-Action@5
-        with:
-          reports: TestResults/**/coverage.cobertura.xml
-          targetdir: coverage-report
-          reporttypes: HtmlInline;Cobertura;MarkdownSummaryGithub
-          assemblyfilters: +Payroll.*;-Payroll.*Tests
+        run: |
+          dotnet tool install --global dotnet-reportgenerator-globaltool
+          reportgenerator \
+            "-reports:TestResults/**/coverage.cobertura.xml" \
+            "-targetdir:coverage-report" \
+            "-reporttypes:HtmlInline;Cobertura;MarkdownSummaryGithub" \
+            "-assemblyfilters:+Payroll.*;-Payroll.*Tests"
 
       - name: Publish coverage summary
         if: always()

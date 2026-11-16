@@ -28,6 +28,8 @@ concurrency:
 jobs:
   build-image:
     name: Build & push image
+    # Skip cleanly (instead of failing) until the Azure variables above are configured.
+    if: ${{ vars.AZURE_CLIENT_ID != '' }}
     runs-on: ubuntu-latest
     outputs:
       image: ${{ steps.meta.outputs.image }}
